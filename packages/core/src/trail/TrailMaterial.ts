@@ -1,20 +1,13 @@
 import { Engine } from "../Engine";
-import { Material } from "../material/Material";
-import { BlendFactor, Shader } from "../shader";
-import FRAG_SHADER from "./trail.fs.glsl";
-import VERT_SHADER from "./trail.vs.glsl";
+import { BaseMaterial, BlendMode } from "../material";
+import { CullMode, Shader } from "../shader";
 
-Shader.create("trail", VERT_SHADER, FRAG_SHADER);
+export class TrailMaterial extends BaseMaterial {
+    constructor(engine: Engine) {
+        super(engine, Shader.find("trail-shader"));
 
-export class TrailMaterial extends Material {
-  constructor(engine: Engine) {
-    super(engine, Shader.find("trail"));
-
-    const target = this.renderState.blendState.targetBlendState;
-    target.enabled = true;
-    target.sourceColorBlendFactor = target.sourceAlphaBlendFactor = BlendFactor.SourceAlpha;
-    target.destinationColorBlendFactor = target.destinationAlphaBlendFactor = BlendFactor.One;
-
-    this.renderState.depthState.writeEnabled = false;
-  }
+        this.isTransparent = true;
+        this.blendMode = BlendMode.Additive;
+        this.renderState.rasterState.cullMode = CullMode.Off;
+    }
 }

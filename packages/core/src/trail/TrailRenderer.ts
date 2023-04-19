@@ -1,250 +1,398 @@
-import { Matrix, Quaternion, Vector3 } from "@galacean/engine-math";
-import { Entity } from "../Entity";
-import { Buffer } from "../graphic/Buffer";
-import { BufferUsage } from "../graphic/enums/BufferUsage";
-import { MeshTopology } from "../graphic/enums/MeshTopology";
-import { VertexElementFormat } from "../graphic/enums/VertexElementFormat";
-import { VertexElement } from "../graphic/VertexElement";
+import { Renderer } from "../Renderer";
 import { BufferMesh } from "../mesh/BufferMesh";
-import { MeshRenderer } from "../mesh/MeshRenderer";
-import { RenderContext } from "../RenderPipeline/RenderContext";
-import { Texture2D } from "../texture";
+import { Buffer, BufferBindFlag, BufferUsage, Mesh, MeshTopology, VertexElement, VertexElementFormat } from "../graphic";
+import { Texture } from "../texture";
+import { ICustomClone } from "../clone/ComponentCloner";
 import { TrailMaterial } from "./TrailMaterial";
-
-const _tempVector3 = new Vector3();
+import { Entity } from "../Entity";
+import { Vector3, Matrix, Color } from "@galacean/engine-math";
 
 /**
- * @deprecated
+ * Trail Renderer Component.
  */
-export class TrailRenderer extends MeshRenderer {
-  private _vertexStride: number;
-  private _vertices: Float32Array;
+export class TrailRenderer extends Renderer implements ICustomClone {
+  private _mesh: Mesh;
+  private _texture: Texture;
+
+  private _currentLength: number = 0;
+  private _currentEnd: number = -1;
+  private _currentNodeIndex: number = 0;
+
+  private _width: number = 1.0;
+  private _maxLength: number = 0.0;
+
+  private _time: number = 1.0;
+  private _trailFPS: number = 120;
+
+  private _vertexCount: number = 0;
+  private _verticesPerNode: number = 2.0;
+
+  private _nodeIndexBuffer: Buffer;
+  private _nodeIndexData: Float32Array;
+
+  private _nodeCentersBuffer: Buffer;
+  private _nodeCenters: Float32Array;
+
   private _vertexBuffer: Buffer;
-  private _stroke;
-  private _minSeg;
-  private _lifetime;
-  private _maxPointNum;
-  private _points: Array<Vector3>;
-  private _pointStates: Array<number>;
-  private _strapPoints: Array<Vector3>;
-  private _curPointNum;
-  private _prePointsNum;
+  private _positions: Float32Array;
+
+  private _headVertexArray: Array<Vector3>;
+  private _tempHeadVertexArray: Array<Vector3>;
+  private _tempEntityMatrix: Matrix;
+  private _tempCenterVertex: Vector3;
+
+
+  private _headColor: Color = new Color();
+  private _trailColor: Color = new Color();
+
+  private _textureScaleY: number = 1.0;
+  private _textureScaleX: number = 1.0;
+
+  private _textureDragging: boolean = false;
+
   /**
-   * @deprecated
+   * Mesh of trail.
    */
-  constructor(entity: Entity, props: any) {
+  get mesh(): Mesh {
+    return this._mesh;
+  }
+
+  set mesh(value: Mesh) {
+    this._mesh = value;
+  }
+
+  /**
+   * Texture of trail.
+   */
+  get texture(): Texture {
+    return this._texture;
+  }
+
+  set texture(value: Texture) {
+    this._texture = value;
+    if (value) {
+      this.shaderData.enableMacro("trailTexture");
+      this.shaderData.setTexture("u_texture", value);
+      this.shaderData.setFloat("u_textureScaleY", this._textureScaleY);
+      this.shaderData.setFloat("u_textureScaleX", this._textureScaleX);
+    } else {
+      this.shaderData.disableMacro("trailTexture");
+    }
+  }
+
+  /**
+   * Width of trail.
+   */
+  get width(): number {
+    return this._width;
+  }
+
+  set width(value: number) {
+    this._width = value;
+    this._init();
+  }
+
+  /**
+   * Time of trail node life.
+   */
+  get time(): number {
+    return this._time;
+  }
+
+  set time(value: number) {
+    // 
+    this._time = Number(value.toFixed(1));
+    this._init();
+    this.shaderData.setFloat("u_trailLifeTime", this._time);
+    this.shaderData.setFloat("u_maxLength", this._trailFPS);
+  }
+
+  /** 
+   * Head color for trail.
+   */
+  get headColor(): Color {
+    return this._headColor;
+  }
+
+  set headColor(value: Color) {
+    this._headColor.copyFrom(value);
+    this.shaderData.setColor("u_headColor", value);
+  }
+
+  /**
+   * Trail color for trail.
+   */
+  get trailColor(): Color {
+    return this._trailColor;
+  }
+
+  set trailColor(value: Color) {
+    this._trailColor.copyFrom(value);
+    this.shaderData.setColor("u_tailColor", value);
+  }
+
+  /**
+   * Texture UV S-axis for trail.
+   * textureScaleY == 1 => Texture AspectFill;
+   * textureScaleY >  1 => Texture Tile;
+   * textureScaleY <  1 => Texture Strech;
+   */
+  get textureScaleY(): number {
+    return this._textureScaleY;
+  }
+
+  set textureScaleY(value: number) {
+    this._textureScaleY = value;
+    this.shaderData.setFloat("u_textureScaleY", value);
+  }
+
+  /**
+   * Texture UV T-axis for trail.
+   * textureScaleX == 1 => Texture AspectFill;
+   * textureScaleX >  1 => Texture Tile;
+   * textureScaleX <  1 => Texture Strech;
+   */
+  get textureScaleX(): number {
+    return this._textureScaleX;
+  }
+
+  set textureScaleX(value: number) {
+    this._textureScaleX = value;
+    this.shaderData.setFloat("u_textureScaleX", value);
+  }
+
+  /**
+   * Texture Dragging mode for trail.
+   */
+  get textureDragging(): boolean {
+    return this._textureDragging;
+  }
+
+  set textureDragging(value: boolean) {
+    this._textureDragging = value;
+    this.shaderData.setFloat("u_textureDragging", value ? 1.0 : 0.0);
+  }
+
+  /* @internal
+   */
+  constructor(entity: Entity) {
     super(entity);
 
-    this._stroke = props.stroke || 0.2;
-    this._minSeg = props.minSeg || 0.02;
-    this._lifetime = props.lifetime || 1000;
-    this._maxPointNum = (this._lifetime / 1000.0) * entity.engine.targetFrameRate;
-
-    this._points = [];
-    this._pointStates = [];
-    this._strapPoints = [];
-    for (let i = 0; i < this._maxPointNum; i++) {
-      this._points.push(new Vector3());
-      this._pointStates.push(this._lifetime);
-
-      this._strapPoints.push(new Vector3());
-      this._strapPoints.push(new Vector3());
-    }
-    this._curPointNum = 0;
-
-    const mtl = props.material || new TrailMaterial(this.engine);
+    const mtl = this.getMaterial() || new TrailMaterial(this.engine);
     this.setMaterial(mtl);
-
-    this.setTexture(props.texture);
-    this._initGeometry();
   }
+
 
   /**
    * @internal
    */
-  update(deltaTime: number) {
-    let mov = 0,
-      newIdx = 0;
-    for (let i = 0; i < this._curPointNum; i++) {
-      this._pointStates[i] -= deltaTime;
-      if (this._pointStates[i] < 0) {
-        mov++;
-      } else if (mov > 0) {
-        newIdx = i - mov;
-
-        // Move data
-        this._pointStates[newIdx] = this._pointStates[i];
-
-        // Move point
-        this._points[newIdx].copyFrom(this._points[i]);
-      }
-    }
-    this._curPointNum -= mov;
-
-    let appendNewPoint = true;
-    if (this._curPointNum === this._maxPointNum) {
-      appendNewPoint = false;
-    } else if (this._curPointNum > 0) {
-      const lastPoint = this._points[this._points.length - 1];
-      if (Vector3.distance(this.entity.transform.worldPosition, lastPoint) < this._minSeg) {
-        appendNewPoint = false;
-      } else {
-        // debugger
-      }
-    }
-
-    if (appendNewPoint) {
-      this._pointStates[this._curPointNum] = this._lifetime;
-      this._points[this._curPointNum].copyFrom(this.entity.transform.worldPosition);
-
-      this._curPointNum++;
-    }
+  _cloneTo(target: TrailRenderer): void {
+    target.mesh = this._mesh;
   }
 
-  /**
-   * @deprecated
-   * Set trail texture.
-   * @param texture
-   */
-  setTexture(texture: Texture2D) {
-    if (texture) {
-      this.getMaterial().shaderData.setTexture("u_texture", texture);
+  private _init() {
+    this._currentLength = 0;
+    this._currentEnd = -1;
+    this._currentNodeIndex = 0;
+    this._maxLength = this._time * this._trailFPS;
+
+    this._createHeadVertexList();
+    this._createTempHeadVertexList();
+
+    this._tempEntityMatrix = new Matrix();
+    this._tempCenterVertex = new Vector3();
+    this._vertexCount = this._maxLength * this._verticesPerNode;
+    this._positions = new Float32Array((this._vertexCount + this._verticesPerNode) * 3);
+    this._nodeCenters = new Float32Array((this._vertexCount + this._verticesPerNode) * 3);
+    this._nodeIndexData = new Float32Array((this._vertexCount + this._verticesPerNode) * 3);
+
+    this._createMesh();
+  }
+
+  private _createMesh(): BufferMesh {
+    const mesh = new BufferMesh(this.engine, "trail-Mesh");
+
+    const positionBuffer = new Buffer(this.engine, BufferBindFlag.VertexBuffer, this._positions, BufferUsage.Dynamic);
+    mesh.setVertexBufferBinding(positionBuffer, 12, 0);
+
+    const nodeCentersBuffer = new Buffer(this.engine, BufferBindFlag.VertexBuffer, this._nodeCenters, BufferUsage.Dynamic);
+    mesh.setVertexBufferBinding(nodeCentersBuffer, 12, 1);
+
+    const nodeIndexBuffer = new Buffer(this.engine, BufferBindFlag.VertexBuffer, this._nodeIndexData, BufferUsage.Dynamic);
+    mesh.setVertexBufferBinding(nodeIndexBuffer, 12, 2);
+
+    mesh.setVertexElements(
+      [
+        new VertexElement("a_position", 0, VertexElementFormat.Vector3, 0),
+        new VertexElement("a_nodeCenter", 0, VertexElementFormat.Vector3, 1),
+        new VertexElement("a_nodeIndexData", 0, VertexElementFormat.Vector3, 2),
+      ])
+    mesh.addSubMesh(0, 0, MeshTopology.TriangleStrip);
+
+    this._vertexBuffer = positionBuffer;
+    this._nodeCentersBuffer = nodeCentersBuffer;
+    this._nodeIndexBuffer = nodeIndexBuffer;
+
+    this._mesh = mesh;
+
+    return mesh;
+  }
+
+  private _createHeadVertexList(): void {
+    const headWidth = this.width == 0 ? 1 : this.width;
+    this._headVertexArray = [];
+
+    let halfWidth = headWidth || 1.0;
+    halfWidth = halfWidth / 2.0;
+
+    this._headVertexArray.push(new Vector3(-halfWidth, 0, 0));
+    this._headVertexArray.push(new Vector3(halfWidth, 0, 0));
+
+    this._verticesPerNode = 2;
+  }
+
+  private _createTempHeadVertexList(): void {
+    this._tempHeadVertexArray = [];
+    for (let i = 0; i < this._verticesPerNode; i++) {
+      this._tempHeadVertexArray.push(new Vector3(0, 0, 0));
     }
   }
 
   /**
    * @override
    */
-  protected _render(context: RenderContext): void {
-    this._updateStrapVertices(context.camera, this._points);
-    this._updateStrapCoords();
-    this._vertexBuffer.setData(this._vertices);
+  protected _render(context: any): void {
+    const { mesh } = this;
 
-    super._render(context);
+    const subMeshes = mesh.subMeshes;
+    const renderPipeline = context.camera._renderPipeline;
+    const meshRenderDataPool = this._engine._meshRenderDataPool;
+
+    for (let i = 0, n = subMeshes.length; i < n; i++) {
+      const material = this.getMaterial();
+      if (!material) continue;
+      const renderData = meshRenderDataPool.getFromPool();
+      renderData.set(this, material, mesh, subMeshes[i]);
+      renderPipeline.pushRenderData(context, renderData);
+    }
   }
 
-  private _initGeometry() {
-    const mesh = new BufferMesh(this._entity.engine);
-
-    const vertexStride = 20;
-    const vertexCount = this._maxPointNum * 2;
-    const vertexFloatCount = vertexCount * vertexStride;
-    const vertices = new Float32Array(vertexFloatCount);
-    const vertexElements = [
-      new VertexElement("POSITION", 0, VertexElementFormat.Vector3, 0),
-      new VertexElement("TEXCOORD_0", 12, VertexElementFormat.Vector2, 0)
-    ];
-    const vertexBuffer = new Buffer(this.engine, vertexFloatCount * 4, BufferUsage.Dynamic);
-
-    mesh.setVertexBufferBinding(vertexBuffer, vertexStride);
-    mesh.setVertexElements(vertexElements);
-    mesh.addSubMesh(0, vertexCount, MeshTopology.TriangleStrip);
-
-    this._vertexBuffer = vertexBuffer;
-    this._vertexStride = vertexStride;
-    this._vertices = vertices;
-    this.mesh = mesh;
+  /**
+   * @override
+   * @internal
+   */
+  update(deltaTime: number): void {
+    this._updateBuffer();
   }
 
-  private _updateStrapVertices(camera, points: Array<Vector3>) {
-    const m: Matrix = camera.viewMatrix;
-    const e = m.elements;
-    const vx = new Vector3(e[0], e[4], e[8]);
-    const vy = new Vector3(e[1], e[5], e[9]);
-    const vz = new Vector3(e[2], e[6], e[10]);
-    const s = this._stroke;
+  private _updateBuffer(): void {
+    let nextIndex = this._currentEnd + 1 >= this._maxLength ? 0 : this._currentEnd + 1;
 
-    vy.scale(s);
+    if (this._currentLength < this._maxLength) {
+      this._currentLength++;
+    }
+    this._currentEnd++;
+    if (this._currentEnd >= this._maxLength) {
+      this._currentEnd = 0;
+    }
 
-    const up = new Vector3();
-    const down = new Vector3();
+    this._tempEntityMatrix.copyFrom(this.entity.transform.worldMatrix);
+    this._updateSingleBuffer(nextIndex, this._tempEntityMatrix);
+    this._updateNodeIndex(this._currentEnd, this._currentNodeIndex);
+    this._currentNodeIndex++;
 
-    const rotation = new Quaternion();
+    this._updateTrailUniform();
+  }
 
-    Vector3.transformByQuat(vx, rotation, vx);
-    Vector3.transformByQuat(vy, rotation, vy);
+  private _updateSingleBuffer(nodeIndex: number, transformMatrix: Matrix) {
 
-    const dy = new Vector3();
-    const cross = new Vector3();
-    const perpVector = new Vector3();
+    this._tempCenterVertex.set(0, 0, 0);
+    this._tempCenterVertex.transformToVec3(transformMatrix);
+    this._updateNodeCenter(nodeIndex, this._tempCenterVertex);
 
-    vx.normalize();
+    for (let i = 0; i < this._headVertexArray.length; i++) {
+      let vertex = this._tempHeadVertexArray[i];
+      vertex.copyFrom(this._headVertexArray[i]);
+    }
+    for (let i = 0; i < this._headVertexArray.length; i++) {
+      let vertex = this._tempHeadVertexArray[i];
+      vertex.transformToVec3(transformMatrix);
+    }
+    for (let i = 0; i < this._headVertexArray.length; i++) {
+      let positionIndex = ((this._verticesPerNode * nodeIndex) + i) * 3;
+      let transformedHeadVertex = this._tempHeadVertexArray[i];
 
-    const vertices = this._vertices;
-    //-- quad pos
-    for (let i = 0; i < this._maxPointNum; i++) {
-      //-- center pos
-      if (i < this._curPointNum) {
-        const p = points[i];
+      this._positions[positionIndex] = transformedHeadVertex.x;
+      this._positions[positionIndex + 1] = transformedHeadVertex.y;
+      this._positions[positionIndex + 2] = transformedHeadVertex.z;
+    }
+    const finalVertexCount = this._currentLength * this._verticesPerNode * 3;
+    let finalMeshStart = -1;
+    if (finalVertexCount == this._positions.length - this._verticesPerNode * 3) {
+      this._appendLastNodeForSubmesh();
 
-        if (i === this._curPointNum - 1 && i !== 0) {
-          Vector3.subtract(p, points[i - 1], perpVector);
-        } else {
-          Vector3.subtract(points[i + 1], p, perpVector);
-        }
-
-        this._projectOnPlane(perpVector, vz, perpVector);
-        perpVector.normalize();
-
-        // Calculate angle between vectors
-        let angle = Math.acos(Vector3.dot(vx, perpVector));
-        Vector3.cross(vx, perpVector, cross);
-        if (Vector3.dot(cross, vz) <= 0) {
-          angle = Math.PI * 2 - angle;
-        }
-        Quaternion.rotationAxisAngle(vz, angle, rotation);
-        Vector3.transformByQuat(vy, rotation, dy);
-
-        Vector3.add(p, dy, up);
-        Vector3.subtract(p, dy, down);
+      finalMeshStart = (this._verticesPerNode * (nodeIndex + 1));
+      this.mesh.subMeshes[0].start = finalMeshStart;
+      this.mesh.subMeshes[0].count = (this._currentLength + 1) * 2 - finalMeshStart;
+      this.mesh.subMeshes[1].start = 0;
+      this.mesh.subMeshes[1].count = finalMeshStart;
+    } else {
+      if (this.mesh.subMesh) {
+        this.mesh.subMesh.start = 0;
+        this.mesh.subMesh.count = this._currentLength * 2;
       }
-
-      const p0 = (i * 2 * this._vertexStride) / 4;
-      const p1 = ((i * 2 + 1) * this._vertexStride) / 4;
-      vertices[p0] = up.x;
-      vertices[p0 + 1] = up.y;
-      vertices[p0 + 2] = up.z;
-
-      vertices[p1] = down.x;
-      vertices[p1 + 1] = down.y;
-      vertices[p1 + 2] = down.z;
     }
+    this._vertexBuffer.setData(this._positions);
   }
 
-  private _updateStrapCoords() {
-    if (this._prePointsNum === this._curPointNum) {
-      return;
+  private _updateNodeIndex(nodeIndex: number, id: number) {
+    for (let i = 0; i < this._verticesPerNode; i++) {
+      let baseIndex = ((this._verticesPerNode * nodeIndex) + i) * 3;
+
+      this._nodeIndexData[baseIndex] = id;
+      this._nodeIndexData[baseIndex + 1] = i;
+      this._nodeIndexData[baseIndex + 2] = performance.now() / 1000;
     }
 
-    this._prePointsNum = this._curPointNum;
-
-    const count = this._curPointNum;
-    const texDelta = 1.0 / count;
-    const vertices = this._vertices;
-    for (let i = 0; i < count; i++) {
-      const d = 1.0 - i * texDelta;
-      const p0 = (i * 2 * this._vertexStride) / 4;
-      const p1 = ((i * 2 + 1) * this._vertexStride) / 4;
-
-      vertices[p0] = 0;
-      vertices[p0 + 1] = d;
-
-      vertices[p1] = 1.0;
-      vertices[p1 + 1] = d;
+    let lastIndex = (this._currentLength * this._verticesPerNode) * 3;
+    for (let i = 0; i < this._verticesPerNode * 2; i++) {
+      this._nodeIndexData[lastIndex + i] = this._nodeIndexData[i];
+      this._nodeIndexData[lastIndex + i + 1] = this._nodeIndexData[i + 1];
+      this._nodeIndexData[lastIndex + i + 2] = this._nodeIndexData[i + 2];
     }
+    this._nodeIndexBuffer.setData(this._nodeIndexData);
   }
 
-  private _projectOnVector(a: Vector3, p: Vector3, out: Vector3): void {
-    const n_p = p.clone();
-    Vector3.normalize(n_p, n_p);
-    const cosine = Vector3.dot(a, n_p);
-    out.x = n_p.x * cosine;
-    out.y = n_p.y * cosine;
-    out.z = n_p.z * cosine;
+  private _updateNodeCenter(nodeIndex: number, nodeCenter: Vector3) {
+    for (var i = 0; i < this._verticesPerNode; i++) {
+      let baseIndex = ((this._verticesPerNode * nodeIndex) + i) * 3;
+      this._nodeCenters[baseIndex] = nodeCenter.x;
+      this._nodeCenters[baseIndex + 1] = nodeCenter.y;
+      this._nodeCenters[baseIndex + 2] = nodeCenter.z;
+    }
+    let lastIndex = this._currentLength * this._verticesPerNode * 3;
+    for (let i = 0; i < 2 * this._verticesPerNode * 3; i++) {
+      this._nodeCenters[lastIndex + i] = this._nodeCenters[i];
+    }
+    this._nodeCentersBuffer.setData(this._nodeCenters);
   }
 
-  private _projectOnPlane(a: Vector3, n: Vector3, out: Vector3) {
-    this._projectOnVector(a, n, _tempVector3);
-    Vector3.subtract(a, _tempVector3, out);
+  private _updateTrailUniform() {
+    this.shaderData.setFloat("u_currentTime", performance.now() / 1000);
+  }
+
+  private _appendLastNodeForSubmesh() {
+    if (this.mesh.subMeshes.length != 2) {
+      this.mesh.clearSubMesh();
+      this.mesh.addSubMesh(0, 0, MeshTopology.TriangleStrip);
+      this.mesh.addSubMesh(0, 0, MeshTopology.TriangleStrip);
+    }
+    // Split TriangleStrip into two subMeshes;
+    // Copy the head node of the second submesh to the end of the first submesh;
+    // Avoid gap in the trail.
+    let lastIndex = this._currentLength * this._verticesPerNode * 3;
+    for (let i = 0; i < 2 * this._verticesPerNode * 3; i++) {
+      this._positions[lastIndex + i] = this._positions[i];
+    }
   }
 }
