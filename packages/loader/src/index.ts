@@ -15,6 +15,8 @@ import "./SpriteAtlasLoader";
 import "./SpriteLoader";
 import "./Texture2DLoader";
 import "./TextureCubeLoader";
+import "./AnimationClipLoader";
+import "./AudioLoader";
 import "./ProjectLoader";
 import "./ktx2/KTX2Loader";
 
