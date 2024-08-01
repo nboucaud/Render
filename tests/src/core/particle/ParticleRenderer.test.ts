@@ -1,9 +1,10 @@
 import { WebGLEngine } from "@galacean/engine-rhi-webgl";
-import { Camera, ParticleRenderer, ModelMesh } from "@galacean/engine-core";
+import { Camera, ParticleRenderer, ModelMesh, Scene, ParticleRenderMode } from "@galacean/engine-core";
 import { expect } from "chai";
 
 describe("ParticleRenderer", () => {
   let engine: WebGLEngine;
+  let scene: Scene;
 
   before(async function () {
     engine = await WebGLEngine.create({
@@ -11,7 +12,8 @@ describe("ParticleRenderer", () => {
     });
     engine.canvas.resizeByClientSize();
 
-    const rootEntity = engine.sceneManager.activeScene.createRootEntity("root");
+    scene = engine.sceneManager.activeScene;
+    const rootEntity = scene.createRootEntity("root");
 
     const cameraEntity = rootEntity.createChild("Camera");
     cameraEntity.addComponent(Camera);
@@ -20,8 +22,46 @@ describe("ParticleRenderer", () => {
     engine.run();
   });
 
+  it("ParticleRenderer lengthScale", () => {
+    const renderer = scene.createRootEntity("Renderer").addComponent(ParticleRenderer);
+    renderer.lengthScale = 1;
+    expect(renderer.lengthScale).to.eq(1);
+    renderer.lengthScale = -0.333333;
+    expect(renderer.lengthScale).to.eq(-0.333333);
+    renderer.lengthScale = 0;
+    expect(renderer.lengthScale).to.eq(0);
+  });
+
+  it("ParticleRenderer velocityScale", () => {
+    const renderer = scene.createRootEntity("Renderer").addComponent(ParticleRenderer);
+    renderer.velocityScale = 1.333393;
+    expect(renderer.velocityScale).to.eq(1.333393);
+    renderer.velocityScale = -0.333333;
+    expect(renderer.velocityScale).to.eq(-0.333333);
+    renderer.velocityScale = 0;
+    expect(renderer.velocityScale).to.eq(0);
+  });
+
+  it("ParticleRenderer renderMode", () => {
+    const renderer = scene.createRootEntity("Renderer").addComponent(ParticleRenderer);
+    renderer.renderMode = ParticleRenderMode.None;
+    expect(renderer.renderMode).to.eq(ParticleRenderMode.None);
+    renderer.renderMode = ParticleRenderMode.Billboard;
+    expect(renderer.renderMode).to.eq(ParticleRenderMode.Billboard);
+    renderer.renderMode = ParticleRenderMode.StretchBillboard;
+    expect(renderer.renderMode).to.eq(ParticleRenderMode.StretchBillboard);
+    expect(() => {
+      renderer.renderMode = ParticleRenderMode.HorizontalBillboard;
+    }).to.throw("Not implemented");
+    expect(() => {
+      renderer.renderMode = ParticleRenderMode.Mesh;
+    }).to.throw("Not implemented");
+    expect(() => {
+      renderer.renderMode = ParticleRenderMode.VerticalBillboard;
+    }).to.throw("Not implemented");
+  });
+
   it("refCount", () => {
-    const scene = engine.sceneManager.activeScene;
     const renderer1 = scene.createRootEntity("Renderer").addComponent(ParticleRenderer);
     const mesh = new ModelMesh(engine, "mesh");
     renderer1.mesh = mesh;
