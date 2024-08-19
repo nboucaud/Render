@@ -1,4 +1,13 @@
-import { BlinnPhongMaterial, MeshRenderer, PrimitiveMesh, Entity, Camera, ModelMesh } from "@galacean/engine-core";
+import {
+  BlinnPhongMaterial,
+  PBRMaterial,
+  UnlitMaterial,
+  MeshRenderer,
+  PrimitiveMesh,
+  Entity,
+  Camera,
+  ModelMesh
+} from "@galacean/engine-core";
 import { Vector3 } from "@galacean/engine-math";
 import { WebGLEngine } from "@galacean/engine-rhi-webgl";
 import { expect } from "chai";
@@ -9,7 +18,7 @@ describe("MeshRenderer", async function () {
   let cubeEntity: Entity;
   let cubeMesh: ModelMesh;
 
- before(async function () {
+  before(async function () {
     engine = await WebGLEngine.create({ canvas: document.createElement("canvas") });
     const scene = engine.sceneManager.activeScene;
 
@@ -106,6 +115,102 @@ describe("MeshRenderer", async function () {
     expect(cubeMesh.refCount).to.be.equal(2);
 
     cloneCube.destroy();
+  });
+
+  it("receiveShadows", () => {
+    // Test that set and get receiveShadows work correctly.
+    const mr = cubeEntity.getComponent(MeshRenderer);
+    mr.receiveShadows = true;
+    expect(mr.receiveShadows).to.be.true;
+
+    // Test that repeated assignment works correctly.
+    mr.receiveShadows = true;
+    expect(mr.receiveShadows).to.be.true;
+
+    // Test that set false value works correctly.
+    mr.receiveShadows = false;
+    expect(mr.receiveShadows).to.be.false;
+  });
+
+  it("material", () => {
+    const mr = cubeEntity.getComponent(MeshRenderer);
+
+    // Add BlinnPhong, Unlit and PBR materials.
+    mr.setMaterial(0, new BlinnPhongMaterial(engine));
+    mr.setMaterial(0, new UnlitMaterial(engine));
+    mr.setMaterial(1, new PBRMaterial(engine));
+
+    // Test that get material works correctly.
+    expect(mr.getMaterial()).to.be.instanceOf(UnlitMaterial);
+    expect(mr.getMaterial(1)).to.be.instanceOf(PBRMaterial);
+
+    // Test that return null when index is out of range.
+    expect(mr.getMaterial(2)).to.be.null;
+    expect(mr.getMaterial(-1)).to.be.null;
+  });
+
+  it("materials", () => {
+    const mr = cubeEntity.getComponent(MeshRenderer);
+
+    // Test that set materials works correctly.
+    mr.setMaterials([new UnlitMaterial(engine), new PBRMaterial(engine), null, new BlinnPhongMaterial(engine)]);
+
+    // Test that get materials works correctly.
+    const materials = mr.getMaterials();
+    expect(materials[0]).to.be.instanceOf(UnlitMaterial);
+    expect(materials[1]).to.be.instanceOf(PBRMaterial);
+    expect(materials[2]).to.be.null;
+    expect(materials[3]).to.be.instanceOf(BlinnPhongMaterial);
+  });
+
+  it("materialCount", () => {
+    // Test that get materialCount works correctly.
+    const mr = cubeEntity.getComponent(MeshRenderer);
+    expect(mr.materialCount).to.be.equal(4);
+
+    // Test that set materialCount works correctly.
+    mr.materialCount = 2;
+    expect(mr.materialCount).to.be.equal(2);
+
+    // Test that set materialCount with negative value works correctly.
+    mr.materialCount = 0;
+    expect(mr.materialCount).to.be.equal(0);
+  });
+
+  it("getInstanceMaterial", () => {
+    const mr = cubeEntity.getComponent(MeshRenderer);
+    const unlitMaterial = new UnlitMaterial(engine);
+    const pbrMaterial = new PBRMaterial(engine);
+    unlitMaterial.name = "Unlit";
+    pbrMaterial.name = "PBR ";
+    mr.setMaterials([unlitMaterial, null, pbrMaterial]);
+
+    // Test that getInstanceMaterial works correctly.
+    const material = mr.getInstanceMaterial();
+    expect(material).to.be.instanceOf(UnlitMaterial);
+    expect(material.name).to.be.equal("undefined(Instance)");
+
+    const material1 = mr.getInstanceMaterial(2);
+    expect(material1).to.be.instanceOf(PBRMaterial);
+    expect(material1.name).to.be.equal("undefined (Instance)");
+
+    expect(mr.getInstanceMaterial(1)).to.be.null;
+
+    // Test that return null when index is out of range.
+    expect(mr.getInstanceMaterial(3)).to.be.null;
+    expect(mr.getInstanceMaterial(-1)).to.be.null;
+  });
+
+  it("getInstanceMaterials", () => {
+    const mr = cubeEntity.getComponent(MeshRenderer);
+    mr.setMaterials([new UnlitMaterial(engine), new PBRMaterial(engine)]);
+
+    // Test that getInstanceMaterials works correctly.
+    const materials = mr.getInstanceMaterials();
+    expect(materials[0]).to.be.instanceOf(UnlitMaterial);
+    expect(materials[0].name).to.be.equal("undefined(Instance)");
+    expect(materials[1]).to.be.instanceOf(PBRMaterial);
+    expect(materials[1].name).to.be.equal("undefined(Instance)");
   });
 
   it("destroy", () => {
