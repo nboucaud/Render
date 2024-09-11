@@ -148,11 +148,30 @@ export class Script extends Component {
   onPointerExit(pointer: Pointer): void {}
 
   /**
-   * Called when the pointer is down while over the ColliderShape and is still holding down.
+   * This function will be called when the pointer is pressed on the collider.
+   * @param pointer
+   */
+  onPointerBeginDrag(pointer: Pointer): void {}
+
+  /**
+   * When a drag collision occurs on the pointer, this function will be called every time it moves.
    * @param pointer - The pointer that triggered
-   * @remarks onPointerDrag is called every frame while the pointer is down.
    */
   onPointerDrag(pointer: Pointer): void {}
+
+  /**
+   * When dragging ends, this function will be called(Dragged object).
+   * @param pointer - The pointer that triggered
+   * @remarks Dragged object: The object being dragged.
+   */
+  onPointerEndDrag(pointer: Pointer): void {}
+
+  /**
+   * When dragging ends, this function will be called(Receiving object).
+   * @param pointer - The pointer that triggered
+   * @remarks Receiving object: The collider hit when ending the drag.
+   */
+  onPointerDrop(pointer: Pointer): void {}
 
   /**
    * Called when be disabled.
