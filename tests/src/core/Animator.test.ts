@@ -54,6 +54,7 @@ describe("Animator test", function () {
     animator.speed = 1;
     // @ts-ignore
     animator._reset();
+    animator.animatorController.clearParameters();
   });
   it("constructor", () => {
     // Test default values
@@ -766,10 +767,6 @@ describe("Animator test", function () {
 
   it("hasExitTime", () => {
     const { animatorController } = animator;
-    // @ts-ignore
-    animatorController._parameters.length = 0;
-    // @ts-ignore
-    animatorController._parametersMap = Object.create(null);
     animatorController.addParameter("triggerIdle", false);
     // @ts-ignore
     const layerData = animator._getAnimatorLayerData(0);
@@ -814,7 +811,6 @@ describe("Animator test", function () {
 
   it("setTriggerParameter", () => {
     const { animatorController } = animator;
-    animatorController.clearParameters();
     animatorController.addTriggerParameter("triggerRun");
     animatorController.addTriggerParameter("triggerWalk");
     // @ts-ignore
@@ -870,7 +866,6 @@ describe("Animator test", function () {
 
   it("fixedDuration", () => {
     const { animatorController } = animator;
-    animatorController.clearParameters();
     animatorController.addTriggerParameter("triggerRun");
     animatorController.addTriggerParameter("triggerWalk");
     // @ts-ignore
